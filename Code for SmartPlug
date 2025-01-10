@@ -1,0 +1,147 @@
+#define BLYNK_TEMPLATE_ID "TMPL6dpAdEzYK"
+#define BLYNK_TEMPLATE_NAME "SmartPlug"
+#define BLYNK_AUTH_TOKEN "A1mIP-4hhDcwRdN6EErLzqIGKRQ9zpkG"
+
+#include <BlynkSimpleEsp32.h>
+#include <ACS712.h>
+
+// Blynk settings
+char authToken[] = "A1mIP-4hhDcwRdN6EErLzqIGKRQ9zpkG" ; 
+char ssid[] = "HUAWEI-2.4G-6Bwx"; 
+char pass[] ="pegk8GFE";
+
+// Current Sensor
+ACS712 ACS(34, 2.5, 4095, 100);  // Parameters: analog pin, Vref, ADC resolution, sensor sensitivity
+int calibration_factor = 125;
+
+// Pins
+#define RELAY_PIN 25 // Connected to relay module
+#define CURRENT_SENSOR_PIN 34 // Connected to ACS712
+#define THRESHOLD_CURRENT 0.05 // Adjust based on your device's standby current
+
+// Constants
+#define VOLTAGE 230.0 // Voltage of system 
+#define ACS712_SENSITIVITY 0.100 // ACS712 sensitivity in V/A (adjust for your module)
+
+// Variables
+bool relayState = false;
+float currentReading = 0;
+float powerConsumption = 0;
+float energyConsumption = 0;  // Energy in Watt-hours
+unsigned long lastPowerUpdateTime = 0;  // Used for energy calculation
+BlynkTimer timer;
+
+float readCurrent() {
+  float average = 0;
+  for (int i = 0; i < 100; i++) {
+    average += ACS.mA_AC();
+  }
+  float mA = (abs(average / 100.0) - calibration_factor);
+  if (mA <= 5) mA = 0;
+
+  // Convert to Amps
+  float amps = mA / 1000.0;  // Convert milliamps to amps
+
+  // Print values for debugging
+  Serial.print("Current: ");
+  Serial.print(amps);
+  Serial.print(" A");
+
+  return amps;  // Return in Amps
+}
+
+// Define higher and lower thresholds for hysteresis
+#define LOWER_THRESHOLD 0.01  // Lower threshold to turn off the relay
+#define HIGHER_THRESHOLD 0.06 // Higher threshold to turn on the relay
+
+// Variables to store the current relay state and time
+unsigned long lastRelayChangeTime = 0; // Store the time of the last relay change
+unsigned long debounceTime = 10000; // Wait 10 seconds before considering the relay change (debounce)
+
+void calculatePower() {
+  Serial.println("calculatePower() running...");
+
+  currentReading = readCurrent();
+  powerConsumption = currentReading * VOLTAGE; // Watts
+
+  unsigned long currentMillis = millis();
+  float timeElapsed = (currentMillis - lastPowerUpdateTime) / 1000.0; // Convert to seconds
+
+  if (timeElapsed > 0) {  // Ensure valid time
+    float timeInHours = timeElapsed / 3600.0; // Convert to hours
+    energyConsumption += powerConsumption * timeInHours; // Accumulate energy in Wh
+    lastPowerUpdateTime = currentMillis; // Update timestamp
+  }
+
+  float energyInKWh = energyConsumption / 1000.0; // Convert Wh to kWh
+
+  Serial.print("Power: "); Serial.print(powerConsumption); Serial.println(" W");
+  Serial.print("Time elapsed: "); Serial.print(timeElapsed); Serial.println(" sec");
+  Serial.print("Energy (Wh): "); Serial.print(energyConsumption); Serial.println(" Wh");
+  Serial.print("Energy (kWh): "); Serial.print(energyInKWh); Serial.println(" kWh");
+
+  Blynk.virtualWrite(V3, powerConsumption);
+  Blynk.virtualWrite(V4, energyInKWh);
+
+
+  // Cut off relay if power drops below LOWER_THRESHOLD for debounce time
+  if (relayState && currentReading < LOWER_THRESHOLD && (currentMillis - lastRelayChangeTime) > debounceTime) {
+    digitalWrite(RELAY_PIN, LOW);
+    relayState = false;
+    Blynk.virtualWrite(V1, "OFF (Full Charged)");
+    lastRelayChangeTime = currentMillis; // Update the time the relay was turned off
+  }
+  
+  // Turn on relay if power exceeds HIGHER_THRESHOLD
+  if (!relayState && currentReading > HIGHER_THRESHOLD && (currentMillis - lastRelayChangeTime) > debounceTime) {
+    digitalWrite(RELAY_PIN, HIGH);
+    relayState = true;
+    Blynk.virtualWrite(V1, "ON (Charging)");
+    lastRelayChangeTime = currentMillis; // Update the time the relay was turned on
+  }
+}
+
+
+// Manual control from app
+BLYNK_WRITE(V0) {
+  int value = param.asInt();
+  relayState = value;
+  digitalWrite(RELAY_PIN, relayState ? HIGH : LOW);
+  Blynk.virtualWrite(V1, relayState ? "ON" : "OFF");
+}
+
+// Timer control from app
+BLYNK_WRITE(V5) {
+  int timerValue = param.asInt(); // Timer value in seconds
+  if (timerValue > 0) {
+    relayState = true;
+    digitalWrite(RELAY_PIN, HIGH);
+    Blynk.virtualWrite(V1, "ON (Timer)");
+    timer.setTimeout(timerValue * 1000, []() {
+      relayState = false;
+      digitalWrite(RELAY_PIN, LOW);
+      Blynk.virtualWrite(V1, "OFF (Timer Ended)");
+    });
+  }
+}
+
+void setup() {
+  // Serial and WiFi setup
+  Serial.begin(115200);
+  Blynk.begin(authToken, ssid, pass);
+
+  // Pin setup
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, LOW); // Ensure relay is off initially
+
+  // Set up timers
+  timer.setInterval(1000L, calculatePower); // Check power consumption every second
+}
+
+void loop() {
+  Blynk.run();
+  timer.run();
+
+  float current = readCurrent();  // In Amps
+  Blynk.virtualWrite(V2, current);  // Send current value to Virtual Pin V2
+}
