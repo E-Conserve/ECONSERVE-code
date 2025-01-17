@@ -2,13 +2,14 @@
 #define BLYNK_TEMPLATE_NAME "SmartPlug"
 #define BLYNK_AUTH_TOKEN "A1mIP-4hhDcwRdN6EErLzqIGKRQ9zpkG"
 
+// libraries
 #include <BlynkSimpleEsp32.h>
 #include <ACS712.h>
 
 // Blynk settings
 char authToken[] = "A1mIP-4hhDcwRdN6EErLzqIGKRQ9zpkG" ; 
-char ssid[] = "HUAWEI-2.4G-6Bwx"; 
-char pass[] ="pegk8GFE";
+char ssid[] = "Mi A3"; 
+char pass[] ="wopwopwopwop";
 
 // Current Sensor
 ACS712 ACS(34, 2.5, 4095, 100);  // Parameters: analog pin, Vref, ADC resolution, sensor sensitivity
@@ -17,7 +18,7 @@ int calibration_factor = 125;
 // Pins
 #define RELAY_PIN 25 // Connected to relay module
 #define CURRENT_SENSOR_PIN 34 // Connected to ACS712
-#define THRESHOLD_CURRENT 0.05 // Adjust based on your device's standby current
+#define THRESHOLD_CURRENT 0.00 // Adjust based on your device's standby current
 
 // Constants
 #define VOLTAGE 230.0 // Voltage of system 
@@ -145,3 +146,4 @@ void loop() {
   float current = readCurrent();  // In Amps
   Blynk.virtualWrite(V2, current);  // Send current value to Virtual Pin V2
 }
+
